@@ -19,7 +19,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
         public void runOpMode() {
             // Get the potentiometer and motor from hardwareMap
             potentiometer = hardwareMap.get(AnalogInput.class, "potentiometer");
-            test_motor = hardwareMap.get(DcMotor.class, "test_motor");
+            test_motor = hardwareMap.get(DcMotor.class, "left_drive");
 
             // Loop while the Op Mode is running
             waitForStart();
