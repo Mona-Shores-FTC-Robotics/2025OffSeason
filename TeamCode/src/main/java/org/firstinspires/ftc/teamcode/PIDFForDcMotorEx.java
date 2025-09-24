@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode;
 
+import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
@@ -27,6 +28,8 @@ import static dev.nextftc.bindings.Bindings.*;
         DcMotorEx motorExLeft;
         Button gamepad1a = button(() -> gamepad1.a);
         Button gamepad1b = button(() -> gamepad1.b);
+        TelemetryPacket packet = new TelemetryPacket();
+
 
     public static final double NEW_P = 2.5;
         public static final double NEW_I = 0.1;
@@ -62,12 +65,19 @@ import static dev.nextftc.bindings.Bindings.*;
                 gamepad1b.whenBecomesTrue(() -> pidfModified.p -= 0.001);
 
                 telemetry.addData("Runtime (sec)", "%.01f", getRuntime());
+                packet.put("runtime", getRuntime());
+
                 telemetry.addData("P,I,D,F (orig)", "%.04f, %.04f, %.04f, %.04f",
                         pidfOrig.p, pidfOrig.i, pidfOrig.d, pidfOrig.f);
+                packet.put("p(original)", pidfOrig.p);
+
                 telemetry.addData("P,I,D,F (modified)", "%.04f, %.04f, %.04f, %.04f",
                         pidfModified.p, pidfModified.i, pidfModified.d, pidfModified.f);
+                packet.put("p(modified)", pidfModified.p);
+
+
                 telemetry.addData("Motor velocity", motorExLeft.getVelocity());
-                        telemetry.update();
+                packet.put("Motor Velocity", motorExLeft.getVelocity());
 
                 motorExLeft.setVelocity(1000);
             }
