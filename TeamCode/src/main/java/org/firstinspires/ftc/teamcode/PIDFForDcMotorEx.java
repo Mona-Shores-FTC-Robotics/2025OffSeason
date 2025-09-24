@@ -5,7 +5,15 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.PIDFCoefficients; /**
+import com.qualcomm.robotcore.hardware.PIDFCoefficients;
+
+import dev.nextftc.bindings.BindingManager;
+import dev.nextftc.bindings.Button;
+
+import static dev.nextftc.bindings.Bindings.*;
+
+
+/**
      * Created by Tom on 9/26/17.  Updated 9/24/2021 for PIDF.
      * This assumes that you are using a REV Robotics Control Hub or REV Robotics Expansion Hub
      * as your DC motor controller.  This OpMode uses the extended/enhanced
@@ -17,8 +25,10 @@ import com.qualcomm.robotcore.hardware.PIDFCoefficients; /**
 
         // our DC motor
         DcMotorEx motorExLeft;
+        Button gamepad1a = button(() -> gamepad1.a);
+        Button gamepad1b = button(() -> gamepad1.b);
 
-        public static final double NEW_P = 2.5;
+    public static final double NEW_P = 2.5;
         public static final double NEW_I = 0.1;
         public static final double NEW_D = 0.2;
         public static final double NEW_F = 0.5;
@@ -46,13 +56,10 @@ import com.qualcomm.robotcore.hardware.PIDFCoefficients; /**
 
             // display info to user
             while(opModeIsActive()) {
+                BindingManager.update();
 
-                if (gamepad1.aWasPressed()){
-                pidfModified.p += 0.001;
-                }
-                else if (gamepad1.bWasPressed()){
-                    pidfModified.p -= 0.001;
-                }
+                gamepad1a.whenBecomesTrue(() -> pidfModified.p += 0.001);
+                gamepad1b.whenBecomesTrue(() -> pidfModified.p -= 0.001);
 
                 telemetry.addData("Runtime (sec)", "%.01f", getRuntime());
                 telemetry.addData("P,I,D,F (orig)", "%.04f, %.04f, %.04f, %.04f",
