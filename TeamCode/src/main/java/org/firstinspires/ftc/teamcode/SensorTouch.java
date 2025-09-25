@@ -29,9 +29,10 @@
 
 package org.firstinspires.ftc.teamcode;
 
-import com.qualcomm.robotcore.eventloop.opmode.Disabled;
+
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.TouchSensor;
 
 /*
@@ -48,14 +49,22 @@ import com.qualcomm.robotcore.hardware.TouchSensor;
  * Remove or comment out the @Disabled line to add this OpMode to the Driver Station OpMode list.
  */
 @TeleOp(name = "Sensor: REV touch sensor", group = "Sensor")
+
 public class SensorTouch extends LinearOpMode {
     TouchSensor touchSensor;  // Touch sensor Object
+    DcMotorEx motor;
+
+    Potentiometer potentiometer;
+    boolean motorOn = (false);
+
+    boolean Debounce = false;
 
     @Override
     public void runOpMode() {
 
         // get a reference to our touchSensor object.
         touchSensor = hardwareMap.get(TouchSensor.class, "sensor_touch");
+        motor = hardwareMap.get(DcMotorEx.class, "left_drive");
 
         // wait for the start button to be pressed.
         waitForStart();
@@ -64,13 +73,22 @@ public class SensorTouch extends LinearOpMode {
         // Note we use opModeIsActive() as our loop condition because it is an interruptible method.
         while (opModeIsActive()) {
 
+
             // send the info back to driver station using telemetry function.
             if (touchSensor.isPressed()) {
-                telemetry.addData("Touch Sensor", "Is Pressed");
-            } else {
-                telemetry.addData("Touch Sensor", "Is Not Pressed");
+                sleep(100);
+                telemetry.addLine("Touch sensor is pressed");
+                if (!motorOn)
+                    motorOn = true;
+                else
+                    motorOn = false;
             }
 
+            if (motorOn) {
+                motor.setVelocity(360);
+            } else {
+                motor.setVelocity(0);
+            }
             telemetry.update();
         }
     }
