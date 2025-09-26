@@ -30,14 +30,16 @@ import static dev.nextftc.bindings.Bindings.button;
 public class ChatGPTPIDFForDcMotorEx extends LinearOpMode {
 
     // Live tunables via FTC Dashboard
-    public static volatile double P = 2.5;
-    public static volatile double I = 0.1;
-    public static volatile double D = 0.2;
-    public static volatile double F = 1.0;
+    public static double D = 0.4;
+    public static double F = 10.9;
+    public static double I = 0.1;
+    public static double P = 7;
 
+
+    public double currentVoltage;
     // Potentiometer to velocity scale
-    public static volatile double VOLTS_TO_TICKS_PER_SEC = 720.0;
-
+//    public static volatile double VOLTS_TO_TICKS_PER_SEC = 1120;// for 6000 RPM motor
+    public static volatile double VOLTS_TO_TICKS_PER_SEC = 146;// for 312 RPM motor
     // Button nudge step for classroom demos
     public static volatile double P_STEP = 0.05;
 
@@ -69,6 +71,11 @@ public class ChatGPTPIDFForDcMotorEx extends LinearOpMode {
                 DcMotor.RunMode.RUN_USING_ENCODER,
                 new PIDFCoefficients(P, I, D, F)
         );
+        currentVoltage = potentiometer.getVoltage();
+        if( currentVoltage > 2.5){
+            currentVoltage = 2.5;
+
+        }
 
         // Cache last values so we only write when something changed
         double lastP = Double.NaN, lastI = Double.NaN, lastD = Double.NaN, lastF = Double.NaN;

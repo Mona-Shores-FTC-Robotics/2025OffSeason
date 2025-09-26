@@ -36,7 +36,6 @@ import static dev.nextftc.bindings.Bindings.*;
         AnalogInput potentiometer;
         Button gamepad1a = button(() -> gamepad1.a);
         Button gamepad1b = button(() -> gamepad1.b);
-        TelemetryPacket packet = new TelemetryPacket();
 
 
     public static double NEW_D = 0.4;
@@ -77,12 +76,13 @@ import static dev.nextftc.bindings.Bindings.*;
                 pidfModified.p -= 0.05;
 //                motorExLeft.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidfModified);
             });
-
+            FtcDashboard dashboard = FtcDashboard.getInstance();
             // display info to user
             while(opModeIsActive()) {
                 currentVoltage = potentiometer.getVoltage();
-                targetVelocity = currentVoltage * 720;
+                targetVelocity = currentVoltage * 1440;
                 BindingManager.update();
+                TelemetryPacket packet = new TelemetryPacket();
 
                 telemetry.addData("Runtime (sec)", "%.01f", getRuntime());
                 packet.put("runtime", getRuntime());
@@ -105,7 +105,6 @@ import static dev.nextftc.bindings.Bindings.*;
                 packet.put("Potentiometer voltage",currentVoltage);
 
                 telemetry.update();
-                FtcDashboard dashboard = FtcDashboard.getInstance();
                 dashboard.sendTelemetryPacket(packet);
                 pidfModified.p = NEW_P;
                 pidfModified.i = NEW_I;
