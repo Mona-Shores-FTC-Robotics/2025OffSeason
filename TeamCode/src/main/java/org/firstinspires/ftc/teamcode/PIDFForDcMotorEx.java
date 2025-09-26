@@ -31,7 +31,6 @@ import static dev.nextftc.bindings.Bindings.*;
         double currentVoltage;
         double targetVelocity;
         // our DC motor
-        public static PIDFCoefficients pidfModified = new PIDFCoefficients();
 
     DcMotorEx motorExLeft;
         AnalogInput potentiometer;
@@ -40,10 +39,11 @@ import static dev.nextftc.bindings.Bindings.*;
         TelemetryPacket packet = new TelemetryPacket();
 
 
-    public static final double NEW_P = 2.5;
-        public static final double NEW_I = 0.1;
-        public static final double NEW_D = 0.2;
-        public static final double NEW_F = 1;
+    public static double NEW_D = 0.4;
+    public static double NEW_F = 10.9;
+    public static double NEW_I = 0.1;
+    public static double NEW_P = 7;
+
         // These values are for illustration only; they must be set
         // and adjusted for each motor based on its planned usage.
 
@@ -62,10 +62,12 @@ import static dev.nextftc.bindings.Bindings.*;
 
             // Change coefficients using methods included with DcMotorEx class.
             PIDFCoefficients pidfNew = new PIDFCoefficients(NEW_P, NEW_I, NEW_D, NEW_F);
+            PIDFCoefficients pidfModified = new PIDFCoefficients(NEW_P, NEW_I, NEW_D, NEW_F);
+
             motorExLeft.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidfNew);
 
             // Re-read coefficients and verify change.
-             pidfModified = motorExLeft.getPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER);
+//             pidfModified = motorExLeft.getPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER);
 
             gamepad1a.whenBecomesTrue(() -> {
                 pidfModified.p += 0.05;
@@ -91,7 +93,7 @@ import static dev.nextftc.bindings.Bindings.*;
 
                 telemetry.addData("P,I,D,F (modified)", "%.04f, %.04f, %.04f, %.04f",
                         pidfModified.p, pidfModified.i, pidfModified.d, pidfModified.f);
-                packet.put("p(modified)", pidfModified.p);
+                        packet.put("pidf modified" ,pidfModified);
 
                 telemetry.addData("Target velocity: ", targetVelocity);
                 packet.put("Target velocity", targetVelocity);
@@ -105,7 +107,10 @@ import static dev.nextftc.bindings.Bindings.*;
                 telemetry.update();
                 FtcDashboard dashboard = FtcDashboard.getInstance();
                 dashboard.sendTelemetryPacket(packet);
-
+                pidfModified.p = NEW_P;
+                pidfModified.i = NEW_I;
+                pidfModified.d = NEW_D;
+                pidfModified.f = NEW_F;
                 motorExLeft.setPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, pidfModified);
 
                 motorExLeft.setVelocity(targetVelocity);
