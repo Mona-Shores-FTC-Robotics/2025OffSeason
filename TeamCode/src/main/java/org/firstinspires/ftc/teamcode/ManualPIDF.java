@@ -9,6 +9,7 @@ import com.qualcomm.robotcore.hardware.VoltageSensor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import java.util.List;
 
+@Config
 @TeleOp(name = "Manual PIDF", group = "Settings")
 public class ManualPIDF extends LinearOpMode {
 
