@@ -8,151 +8,277 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
-import com.qualcomm.robotcore.util.ElapsedTime;
 
 import dev.nextftc.control.ControlSystem;
 import dev.nextftc.control.KineticState;
 
 @Config
-@TeleOp(name = "Flywheel (Hub Velocity)", group = "Debug")
+@TeleOp(name = "Flywheel (Live FF/PID tuning)", group = "Debug")
 public class FlywheelNextControlHubVelocity extends OpMode {
 
-    // --- Hardware / Units ---
-    public static String FLYWHEEL_NAME = "left_drive";
-    public static double TICKS_PER_REV = 2048; // verify for your encoder/gearbox
+    // =========================
+    // Hardware names
+    // =========================
+    public static String FLYWHEEL_NAME = "left_drive"; // Motor with built-in encoder
+    public static String STUDICA_NAME  = "m4";         // Studica on motor port 4 as sensor only
 
-    // --- Targets ---
-    public static double RPM_HIGH = 4200;   // gamepad1.a
-    public static double RPM_MID  = 3000;   // gamepad1.x
-    public static double RPM_STOP = 0;      // gamepad1.b
+    // =========================
+    // Encoder scales
+    // =========================
+    public static boolean USE_MANUAL_MOTOR_TPR = true;
+    public static double  MANUAL_MOTOR_TPR     = 28.0;   // from your one-rev test
+    private double MOTOR_TICKS_PER_REV = 1.0;
 
-    // --- Velocity PID gains ---
-    public static double kPv = 0.0007;
-    public static double kIv = 0.0000;
-    public static double kDv = 0.00015;
+    public static double STUDICA_TICKS_PER_REV = 2048.0; // from your one-rev test
 
-    // --- Feedforward (basicFF: v, a, s) ---
-    public static double kV = 0.0;  // power per ticks/sec
-    public static double kA = 0.0;
-    public static double kS = 0.0;
+    public static boolean USE_STUDICA_FOR_CONTROL = true; // set true if you want Studica as control source
 
-    // --- Built-in LPF coefficients ---
-    public static double POS_ALPHA = 0.40;  // optional for flywheel
-    public static double VEL_ALPHA = 0.20;  // often enough to calm hub velocity
+    // =========================
+    // Targets (RPM)
+    // =========================
+    public static double RPM_HIGH = 4200;
+    public static double RPM_MID  = 500;
+    public static double RPM_STOP = 0;
 
-    // --- Debug / Output Controls ---
-    public static boolean SEND_DASH = true; // dashboard graphs
-    public static boolean VERBOSE_RC = true; // show full RC telemetry
-    public static int RC_EVERY_N_LOOPS = 1;  // increase to 2–5 to reduce spam
+    // =========================
+    // Controller (RPM domain)  Power ≈ KS + KV_RPM * rpm + PID trim
+    // =========================
+    public static double KS      = 0.05; //0.08;
+    public static double KV_RPM  = 0.00017; // 1.0 / 4200.0;
+    public static double KA_RPMs = 0.0;    // normally 0 for flywheel
 
-    private DcMotorEx flywheel;
+    public static double KP_RPM  = 0.00001; //0.0012;
+    public static double KI_RPM  = 0.0;
+    public static double KD_RPM  = 0.00010;
+
+    // Filter inside controller
+    public static double VEL_ALPHA = 0.45;
+
+    // Command shaping
+    public static double POWER_SLEW_PER_CYCLE = 0.02;
+
+    // Window for velocity estimate (ms)
+    public static int VEL_WINDOW_MS = 5;
+
+    // Live rebuild switch (press from Dashboard when you want to force a rebuild)
+    public static boolean REBUILD_NOW = false;
+
+    // =========================
+    // Telemetry controls
+    // =========================
+    public static boolean SEND_DASH = true;
+    public static boolean VERBOSE_RC = true;
+    public static int RC_EVERY_N_LOOPS = 1;
+
+    // =========================
+    // Members
+    // =========================
+    private DcMotorEx flywheel;    // powered motor
+    private DcMotorEx studicaEnc;  // external encoder on port 4, sensor only
+
     private ControlSystem control;
 
-    private double targetTps = 0.0;
-    private boolean pA, pB, pX; // edge latch
-
-    // For position-delta cross-check
-    private final ElapsedTime loopTimer = new ElapsedTime();
-    private int lastPos = 0;
-
-    // Loop counter to throttle RC telemetry
+    private double targetRpm = 0.0;
     private int loopCount = 0;
+    private double lastPower = 0.0;
+
+    // Signs so positive power => positive RPM
+    private int motorSign = +1;
+    private int studicaSign = -1; // set to match your observation; flip if needed
+
+    // Windowed velocity state
+    private int  motorPosHist = 0;
+    private long motorTimeHistNs = 0;
+    private int  studicaPosHist = 0;
+    private long studicaTimeHistNs = 0;
+
+    // Snapshots of last-used tunables to detect changes
+    private double lastKS, lastKV, lastKA, lastKP, lastKI, lastKD, lastAlpha;
+    private boolean lastUseManualTPR;
+    private double lastManualTPR;
+    private boolean lastUseStudicaForControl;
 
     @Override
     public void init() {
-        flywheel = hardwareMap.get(DcMotorEx.class, FLYWHEEL_NAME);
-        flywheel.setMode(DcMotorEx.RunMode.RUN_USING_ENCODER); // simple, hub estimates velocity
-        flywheel.setZeroPowerBehavior(DcMotorEx.ZeroPowerBehavior.FLOAT);
+        flywheel   = hardwareMap.get(DcMotorEx.class, FLYWHEEL_NAME);
+        studicaEnc = hardwareMap.get(DcMotorEx.class, STUDICA_NAME);
+
+        flywheel.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        flywheel.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
         flywheel.setDirection(DcMotorSimple.Direction.REVERSE);
 
-        control = ControlSystem.builder()
-                .velPid(kPv, kIv, kDv)              // feedback
-               // .basicFF(kV, kA, kS)                // feedforward
-                //.posFilter(f -> f.lowPass(POS_ALPHA))
-                //.velFilter(f -> f.lowPass(VEL_ALPHA))
-                .build();
+        studicaEnc.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        studicaEnc.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        studicaEnc.setPower(0.0);
+        studicaEnc.setDirection(DcMotorSimple.Direction.REVERSE);
 
-        control.setGoal(new KineticState(0.0)); // goal is velocity (tps)
-        lastPos = flywheel.getCurrentPosition();
-        loopTimer.reset();
+        refreshMotorTPRIfNeeded(true);
+        buildController();      // builds from current KS/KV/KA and KP/KI/KD/VEL_ALPHA
+        snapshotTunables();     // remember what we used last
+        lastUseStudicaForControl = USE_STUDICA_FOR_CONTROL;
     }
 
     @Override
     public void loop() {
-        // --- Latch setpoint on button edge ---
-        boolean a = gamepad1.a, x = gamepad1.x, b = gamepad1.b;
-//        if (a && !pA) targetTps = rpmToTps(RPM_HIGH);
-//        if (x && !pX) targetTps = rpmToTps(RPM_MID);
-//        if (b && !pB) targetTps = rpmToTps(RPM_STOP);
-//        pA = a; pX = x; pB = b;
-        targetTps = rpmToTps(RPM_MID);
-        control.setGoal(new KineticState(targetTps));
+        // Allow live changes to TPR and controller
+        refreshMotorTPRIfNeeded(false);
+        rebuildControllerIfNeeded();
 
+        // Target
+        // boolean a = gamepad1.a, x = gamepad1.x, b = gamepad1.b;
+        // targetRpm = a ? RPM_HIGH : x ? RPM_MID : b ? RPM_STOP : RPM_MID;
+        targetRpm = RPM_MID;
+        control.setGoal(new KineticState(0.0, targetRpm));
 
-//        // --- Measured state (raw, before any ControlSystem filtering) ---
-//        int posTicks = flywheel.getCurrentPosition();
-        double velTpsHub = flywheel.getVelocity();       // hub's ticks/sec
-//        double dt = clamp(loopTimer.seconds(), 1e-3, 0.05);
-//        loopTimer.reset();
-//
-//        // Position-delta velocity for cross-check
-//        int dpos = posTicks - lastPos;
-//        lastPos = posTicks;
-//        double velTpsPosDelta = dpos / dt;
+        // Velocities
+        double motorVelTps   = velTpsWindowed(flywheel, motorSign, VEL_WINDOW_MS);
+        double studicaVelTps = velTpsWindowed(studicaEnc, studicaSign, VEL_WINDOW_MS);
 
-        // --- Controller output (pre-clamp) ---
-        double powerPreClamp = control.calculate(new KineticState(velTpsHub));
+        double motorRpm   = tpsToRpm(motorVelTps, MOTOR_TICKS_PER_REV);
+        double studicaRpm = tpsToRpm(studicaVelTps, STUDICA_TICKS_PER_REV);
 
-        // --- Clamp and apply ---
-        double powerCmd = clamp(powerPreClamp, 0, 1.0); // forward-only
-        flywheel.setPower(powerCmd);
+        // Choose control source live
+        double measuredRpm = USE_STUDICA_FOR_CONTROL ? studicaRpm : motorRpm;
 
-        // --- RC telemetry (readable labels) ---
+        // Control
+        double u = control.calculate(new KineticState(0.0, measuredRpm));
+        double cmd = clamp(u, 0.0, 1.0);
+        if (POWER_SLEW_PER_CYCLE > 0) cmd = slew(cmd, lastPower, POWER_SLEW_PER_CYCLE);
+        lastPower = cmd;
+        flywheel.setPower(cmd);
+
+        // Telemetry
         if ((loopCount++ % Math.max(1, RC_EVERY_N_LOOPS)) == 0) {
             telemetry.addLine("Flywheel Debug");
-            telemetry.addData("Target Speed (RPM)", tpsToRpm(targetTps));
-//            telemetry.addData("Position (ticks)", posTicks);
-//            telemetry.addData("ΔPosition (ticks)", dpos);
-//            telemetry.addData("Loop Δt (s)", dt);
-
-            telemetry.addData("Velocity – Hub (ticks/s)", velTpsHub);
-            telemetry.addData("Velocity – Hub (RPM)", tpsToRpm(velTpsHub));
-//            telemetry.addData("Velocity – From Position (ticks/s)", velTpsPosDelta);
-//            telemetry.addData("Velocity – From Position (RPM)", tpsToRpm(velTpsPosDelta));
-
-            telemetry.addData("Power (Pre-Clamp)", powerPreClamp);
-            telemetry.addData("Power (Applied)", powerCmd);
-
+            telemetry.addData("Target RPM", targetRpm);
+            telemetry.addData("Measured RPM", measuredRpm);
+            telemetry.addData("Motor RPM", motorRpm);
+            telemetry.addData("Studica RPM", studicaRpm);
+            telemetry.addData("u (pre-clamp)", u);
+            telemetry.addData("Power (applied)", cmd);
+            telemetry.addData("Motor TPR", MOTOR_TICKS_PER_REV);
+            telemetry.addData("Studica TPR", STUDICA_TICKS_PER_REV);
+            telemetry.addData("Control Sensor", USE_STUDICA_FOR_CONTROL ? "Studica" : "Motor");
             if (VERBOSE_RC) {
-                telemetry.addData("TPR Assumed", TICKS_PER_REV);
-                telemetry.addData("Speed Error (ticks/s)", targetTps - velTpsHub);
-                telemetry.addData("Speed Error (RPM)", tpsToRpm(targetTps - velTpsHub));
+                telemetry.addData("KS/KV/KA", "%.5f / %.7f / %.5f", KS, KV_RPM, KA_RPMs);
+                telemetry.addData("KP/KI/KD", "%.6f / %.6f / %.6f", KP_RPM, KI_RPM, KD_RPM);
+                telemetry.addData("VEL_ALPHA", VEL_ALPHA);
+                telemetry.addData("motor_pos", motorSign * flywheel.getCurrentPosition());
+                telemetry.addData("studica_pos", studicaSign * studicaEnc.getCurrentPosition());
+                telemetry.addData("motor_tps", motorVelTps);
+                telemetry.addData("studica_tps", studicaVelTps);
             }
             telemetry.update();
         }
 
-        // --- Optional: dashboard packet ---
         if (SEND_DASH) {
             TelemetryPacket p = new TelemetryPacket();
-            p.put("target_tps", targetTps);
-            p.put("target_rpm", tpsToRpm(targetTps));
-//            p.put("pos_ticks", posTicks);
-//            p.put("dpos", dpos);
-//            p.put("dt_s", dt);
-            p.put("vel_hub_tps", velTpsHub);
-            p.put("vel_hub_rpm", tpsToRpm(velTpsHub));
-//            p.put("vel_pos_tps", velTpsPosDelta);
-//            p.put("vel_pos_rpm", tpsToRpm(velTpsPosDelta));
-            p.put("power_pre_clamp", powerPreClamp);
-            p.put("power_applied", powerCmd);
+            p.put("target_rpm", targetRpm);
+            p.put("measured_rpm", measuredRpm);
+            p.put("motor_rpm", motorRpm);
+            p.put("studica_rpm", studicaRpm);
+            p.put("u_pre", u);
+            p.put("power", lastPower);
+            p.put("motor_pos", motorSign * flywheel.getCurrentPosition());
+            p.put("studica_pos", studicaSign * studicaEnc.getCurrentPosition());
+            p.put("motor_tps", motorVelTps);
+            p.put("studica_tps", studicaVelTps);
+            p.put("control_sensor", USE_STUDICA_FOR_CONTROL ? 1 : 0);
             FtcDashboard.getInstance().sendTelemetryPacket(p);
         }
     }
 
-    // --- Helpers ---
+    // =========================
+    // Live tuning helpers
+    // =========================
+    private void snapshotTunables() {
+        lastKS = KS; lastKV = KV_RPM; lastKA = KA_RPMs;
+        lastKP = KP_RPM; lastKI = KI_RPM; lastKD = KD_RPM;
+        lastAlpha = VEL_ALPHA;
+        lastUseManualTPR = USE_MANUAL_MOTOR_TPR;
+        lastManualTPR = MANUAL_MOTOR_TPR;
+        REBUILD_NOW = false;
+    }
+
+    private void refreshMotorTPRIfNeeded(boolean force) {
+        if (force || USE_MANUAL_MOTOR_TPR != lastUseManualTPR || MANUAL_MOTOR_TPR != lastManualTPR) {
+            MOTOR_TICKS_PER_REV = flywheel.getMotorType().getTicksPerRev();
+            if (USE_MANUAL_MOTOR_TPR) MOTOR_TICKS_PER_REV = MANUAL_MOTOR_TPR;
+            lastUseManualTPR = USE_MANUAL_MOTOR_TPR;
+            lastManualTPR = MANUAL_MOTOR_TPR;
+        }
+    }
+
+    private void buildController() {
+        control = ControlSystem.builder()
+                .velPid(KP_RPM, KI_RPM, KD_RPM)
+                .basicFF(KV_RPM, KA_RPMs, KS)
+                .velFilter(f -> f.lowPass(VEL_ALPHA))
+                .build();
+        control.setGoal(new KineticState(0.0, 0.0));
+    }
+
+    private void rebuildControllerIfNeeded() {
+        boolean changed =
+                REBUILD_NOW ||
+                        KS != lastKS || KV_RPM != lastKV || KA_RPMs != lastKA ||
+                        KP_RPM != lastKP || KI_RPM != lastKI || KD_RPM != lastKD ||
+                        VEL_ALPHA != lastAlpha ||
+                        USE_STUDICA_FOR_CONTROL != lastUseStudicaForControl;
+        if (changed) {
+            buildController();
+            snapshotTunables();
+            lastUseStudicaForControl = USE_STUDICA_FOR_CONTROL;
+        }
+    }
+
+    // =========================
+    // Math helpers
+    // =========================
     private static double clamp(double v, double lo, double hi) {
         return Math.max(lo, Math.min(hi, v));
     }
-    private double rpmToTps(double rpm) { return rpm * TICKS_PER_REV / 60.0; }
-    private double tpsToRpm(double tps) { return tps * 60.0 / TICKS_PER_REV; }
+
+    private static double slew(double target, double prev, double step) {
+        if (target > prev + step) return prev + step;
+        if (target < prev - step) return prev - step;
+        return target;
+    }
+
+    private static double tpsToRpm(double ticksPerSec, double ticksPerRev) {
+        return ticksPerSec * 60.0 / ticksPerRev;
+    }
+
+    // Windowed velocity using position deltas
+    private double velTpsWindowed(DcMotorEx m, int sign, int windowMs) {
+        long now = System.nanoTime();
+        int pos = sign * m.getCurrentPosition();
+        if (m == flywheel) {
+            if (motorTimeHistNs == 0) {
+                motorTimeHistNs = now;
+                motorPosHist = pos;
+                return sign * m.getVelocity();
+            }
+            long dtNs = now - motorTimeHistNs;
+            if (dtNs < windowMs * 1_000_000L) return sign * m.getVelocity();
+            double dpos = pos - motorPosHist;
+            double dt = dtNs / 1e9;
+            motorTimeHistNs = now;
+            motorPosHist = pos;
+            return dpos / dt;
+        } else {
+            if (studicaTimeHistNs == 0) {
+                studicaTimeHistNs = now;
+                studicaPosHist = pos;
+                return sign * m.getVelocity();
+            }
+            long dtNs = now - studicaTimeHistNs;
+            if (dtNs < windowMs * 1_000_000L) return sign * m.getVelocity();
+            double dpos = pos - studicaPosHist;
+            double dt = dtNs / 1e9;
+            studicaTimeHistNs = now;
+            studicaPosHist = pos;
+            return dpos / dt;
+        }
+    }
 }
