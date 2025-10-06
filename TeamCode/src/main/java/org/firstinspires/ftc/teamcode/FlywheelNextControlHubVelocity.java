@@ -5,7 +5,9 @@ import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import dev.nextftc.control.ControlSystem;
@@ -16,7 +18,7 @@ import dev.nextftc.control.KineticState;
 public class FlywheelNextControlHubVelocity extends OpMode {
 
     // --- Hardware / Units ---
-    public static String FLYWHEEL_NAME = "flywheel";
+    public static String FLYWHEEL_NAME = "left_drive";
     public static double TICKS_PER_REV = 2048; // verify for your encoder/gearbox
 
     // --- Targets ---
@@ -61,12 +63,13 @@ public class FlywheelNextControlHubVelocity extends OpMode {
         flywheel = hardwareMap.get(DcMotorEx.class, FLYWHEEL_NAME);
         flywheel.setMode(DcMotorEx.RunMode.RUN_USING_ENCODER); // simple, hub estimates velocity
         flywheel.setZeroPowerBehavior(DcMotorEx.ZeroPowerBehavior.FLOAT);
+        flywheel.setDirection(DcMotorSimple.Direction.REVERSE);
 
         control = ControlSystem.builder()
                 .velPid(kPv, kIv, kDv)              // feedback
-                .basicFF(kV, kA, kS)                // feedforward
-                .posFilter(f -> f.lowPass(POS_ALPHA))
-                .velFilter(f -> f.lowPass(VEL_ALPHA))
+               // .basicFF(kV, kA, kS)                // feedforward
+                //.posFilter(f -> f.lowPass(POS_ALPHA))
+                //.velFilter(f -> f.lowPass(VEL_ALPHA))
                 .build();
 
         control.setGoal(new KineticState(0.0)); // goal is velocity (tps)
@@ -78,43 +81,44 @@ public class FlywheelNextControlHubVelocity extends OpMode {
     public void loop() {
         // --- Latch setpoint on button edge ---
         boolean a = gamepad1.a, x = gamepad1.x, b = gamepad1.b;
-        if (a && !pA) targetTps = rpmToTps(RPM_HIGH);
-        if (x && !pX) targetTps = rpmToTps(RPM_MID);
-        if (b && !pB) targetTps = rpmToTps(RPM_STOP);
-        pA = a; pX = x; pB = b;
-
+//        if (a && !pA) targetTps = rpmToTps(RPM_HIGH);
+//        if (x && !pX) targetTps = rpmToTps(RPM_MID);
+//        if (b && !pB) targetTps = rpmToTps(RPM_STOP);
+//        pA = a; pX = x; pB = b;
+        targetTps = rpmToTps(RPM_MID);
         control.setGoal(new KineticState(targetTps));
 
-        // --- Measured state (raw, before any ControlSystem filtering) ---
-        int posTicks = flywheel.getCurrentPosition();
-        double velTpsHub = flywheel.getVelocity();       // hub's ticks/sec
-        double dt = clamp(loopTimer.seconds(), 1e-3, 0.05);
-        loopTimer.reset();
 
-        // Position-delta velocity for cross-check
-        int dpos = posTicks - lastPos;
-        lastPos = posTicks;
-        double velTpsPosDelta = dpos / dt;
+//        // --- Measured state (raw, before any ControlSystem filtering) ---
+//        int posTicks = flywheel.getCurrentPosition();
+        double velTpsHub = flywheel.getVelocity();       // hub's ticks/sec
+//        double dt = clamp(loopTimer.seconds(), 1e-3, 0.05);
+//        loopTimer.reset();
+//
+//        // Position-delta velocity for cross-check
+//        int dpos = posTicks - lastPos;
+//        lastPos = posTicks;
+//        double velTpsPosDelta = dpos / dt;
 
         // --- Controller output (pre-clamp) ---
-        double powerPreClamp = control.calculate(new KineticState(posTicks, velTpsHub));
+        double powerPreClamp = control.calculate(new KineticState(velTpsHub));
 
         // --- Clamp and apply ---
-        double powerCmd = clamp(powerPreClamp, 0.0, 1.0); // forward-only
+        double powerCmd = clamp(powerPreClamp, 0, 1.0); // forward-only
         flywheel.setPower(powerCmd);
 
         // --- RC telemetry (readable labels) ---
         if ((loopCount++ % Math.max(1, RC_EVERY_N_LOOPS)) == 0) {
             telemetry.addLine("Flywheel Debug");
             telemetry.addData("Target Speed (RPM)", tpsToRpm(targetTps));
-            telemetry.addData("Position (ticks)", posTicks);
-            telemetry.addData("ΔPosition (ticks)", dpos);
-            telemetry.addData("Loop Δt (s)", dt);
+//            telemetry.addData("Position (ticks)", posTicks);
+//            telemetry.addData("ΔPosition (ticks)", dpos);
+//            telemetry.addData("Loop Δt (s)", dt);
 
             telemetry.addData("Velocity – Hub (ticks/s)", velTpsHub);
             telemetry.addData("Velocity – Hub (RPM)", tpsToRpm(velTpsHub));
-            telemetry.addData("Velocity – From Position (ticks/s)", velTpsPosDelta);
-            telemetry.addData("Velocity – From Position (RPM)", tpsToRpm(velTpsPosDelta));
+//            telemetry.addData("Velocity – From Position (ticks/s)", velTpsPosDelta);
+//            telemetry.addData("Velocity – From Position (RPM)", tpsToRpm(velTpsPosDelta));
 
             telemetry.addData("Power (Pre-Clamp)", powerPreClamp);
             telemetry.addData("Power (Applied)", powerCmd);
@@ -132,13 +136,13 @@ public class FlywheelNextControlHubVelocity extends OpMode {
             TelemetryPacket p = new TelemetryPacket();
             p.put("target_tps", targetTps);
             p.put("target_rpm", tpsToRpm(targetTps));
-            p.put("pos_ticks", posTicks);
-            p.put("dpos", dpos);
-            p.put("dt_s", dt);
+//            p.put("pos_ticks", posTicks);
+//            p.put("dpos", dpos);
+//            p.put("dt_s", dt);
             p.put("vel_hub_tps", velTpsHub);
             p.put("vel_hub_rpm", tpsToRpm(velTpsHub));
-            p.put("vel_pos_tps", velTpsPosDelta);
-            p.put("vel_pos_rpm", tpsToRpm(velTpsPosDelta));
+//            p.put("vel_pos_tps", velTpsPosDelta);
+//            p.put("vel_pos_rpm", tpsToRpm(velTpsPosDelta));
             p.put("power_pre_clamp", powerPreClamp);
             p.put("power_applied", powerCmd);
             FtcDashboard.getInstance().sendTelemetryPacket(p);
