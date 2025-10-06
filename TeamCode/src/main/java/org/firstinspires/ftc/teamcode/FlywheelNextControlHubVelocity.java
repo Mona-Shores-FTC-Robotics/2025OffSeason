@@ -9,6 +9,8 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 
+import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
+
 import dev.nextftc.control.ControlSystem;
 import dev.nextftc.control.KineticState;
 
@@ -60,8 +62,17 @@ public class FlywheelNextControlHubVelocity extends OpMode {
     // Window for velocity estimate (ms)
     public static int VEL_WINDOW_MS = 5;
 
-    // Live rebuild switch (press from Dashboard when you want to force a rebuild)
+    // Live rebuild switch
     public static boolean REBUILD_NOW = false;
+
+    // =========================
+    // Current reporting
+    // =========================
+    public static boolean REPORT_CURRENT = true;
+    public static double  CURRENT_ALPHA  = 0.30;   // 0 means no smoothing, 1 means heavy smoothing
+
+    private double motorCurrentA          = 0.0;   // instantaneous
+    private double motorCurrentASmoothed  = 0.0;   // low pass for nicer graphs
 
     // =========================
     // Telemetry controls
@@ -147,6 +158,13 @@ public class FlywheelNextControlHubVelocity extends OpMode {
         lastPower = cmd;
         flywheel.setPower(cmd);
 
+        // Current draw sampling and smoothing
+        if (REPORT_CURRENT) {
+            double iA = flywheel.getCurrent(CurrentUnit.AMPS);
+            motorCurrentA = iA;
+            motorCurrentASmoothed = CURRENT_ALPHA * iA + (1.0 - CURRENT_ALPHA) * motorCurrentASmoothed;
+        }
+
         // Telemetry
         if ((loopCount++ % Math.max(1, RC_EVERY_N_LOOPS)) == 0) {
             telemetry.addLine("Flywheel Debug");
@@ -159,6 +177,10 @@ public class FlywheelNextControlHubVelocity extends OpMode {
             telemetry.addData("Motor TPR", MOTOR_TICKS_PER_REV);
             telemetry.addData("Studica TPR", STUDICA_TICKS_PER_REV);
             telemetry.addData("Control Sensor", USE_STUDICA_FOR_CONTROL ? "Studica" : "Motor");
+            if (REPORT_CURRENT) {
+                telemetry.addData("Current A (inst)", motorCurrentA);
+                telemetry.addData("Current A (avg)",  motorCurrentASmoothed);
+            }
             if (VERBOSE_RC) {
                 telemetry.addData("KS/KV/KA", "%.5f / %.7f / %.5f", KS, KV_RPM, KA_RPMs);
                 telemetry.addData("KP/KI/KD", "%.6f / %.6f / %.6f", KP_RPM, KI_RPM, KD_RPM);
@@ -184,6 +206,10 @@ public class FlywheelNextControlHubVelocity extends OpMode {
             p.put("motor_tps", motorVelTps);
             p.put("studica_tps", studicaVelTps);
             p.put("control_sensor", USE_STUDICA_FOR_CONTROL ? 1 : 0);
+            if (REPORT_CURRENT) {
+                p.put("motor_current_a_inst", motorCurrentA);
+                p.put("motor_current_a_avg",  motorCurrentASmoothed);
+            }
             FtcDashboard.getInstance().sendTelemetryPacket(p);
         }
     }
