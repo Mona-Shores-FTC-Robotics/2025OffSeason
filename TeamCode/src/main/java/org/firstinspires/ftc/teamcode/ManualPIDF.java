@@ -5,6 +5,7 @@ import com.acmerobotics.dashboard.telemetry.TelemetryPacket;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.VoltageSensor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import java.util.List;
@@ -15,7 +16,7 @@ public class ManualPIDF extends LinearOpMode {
 
     // === Hardware / Units ===
     public static String motorName = "motor";     // change to match your configuration
-    public static double ticksPerRev = 28;     // set correctly for YOUR motor/encoder
+    public static double ticksPerRev = 2048;     // set correctly for YOUR motor/encoder
 
     // === Control Target ===
     public static boolean useRpm = true;          // if true, targetRpm is used; otherwise targetTps
@@ -23,19 +24,22 @@ public class ManualPIDF extends LinearOpMode {
     public static double targetTps = 0.0;         // dashboard-tunable target in ticks/sec
 
     // === PIDF Gains (dashboard-tunable) ===
-    public static double kP = 0.0008;
+    public static double kP = 0.000;
     public static double kI = 0.0000;
-    public static double kD = 0.0001;
+    public static double kD = 0.000;
     public static double kF = 0.0000;             // base FF gain (per ticks/sec)
 
+    // Sleep
+    public static long sleepyTime = 20; // milliseconds
+
     // === Voltage Compensation (dashboard-tunable) ===
-    public static boolean enableVoltageComp = true;
+    public static boolean enableVoltageComp = false;
     public static double nominalVoltage = 12.0;   // 12.0 for 3S/“12V” FTC systems
 
     // === Safeties / Filters ===
     public static double integralMax = 1.0;       // clamp on integral accumulator (power units)
     public static double derivativeAlpha = 0.7;   // 0..1, larger = smoother derivative
-    public static double powerMin = -1.0;
+    public static double powerMin = 0;
     public static double powerMax =  1.0;
 
     // === Quality-of-life ===
@@ -55,11 +59,14 @@ public class ManualPIDF extends LinearOpMode {
     private double filteredDeriv = 0.0;
     private double lastTargetTps = 0.0;
 
+    private double lastPosition = 0.0;
     @Override
+
     public void runOpMode() {
 
         motor = hardwareMap.get(DcMotorEx.class, "left_drive");
         motor.setMode(DcMotorEx.RunMode.RUN_WITHOUT_ENCODER);
+        motor.setDirection(DcMotorSimple.Direction.REVERSE);
         motor.setZeroPowerBehavior(DcMotorEx.ZeroPowerBehavior.BRAKE);
 
         voltageSensors = hardwareMap.getAll(VoltageSensor.class);
@@ -89,18 +96,21 @@ public class ManualPIDF extends LinearOpMode {
             lastTargetTps = tgtTps;
 
             // 2) Measure current velocity (ticks/sec)
-            double measuredTps = motor.getVelocity();
+            double position = motor.getCurrentPosition();
+            double measuredTps = ((position - lastPosition)/dt);
+            lastPosition = position;
 
             // 3) PIDF math
             double error = tgtTps - measuredTps;
 
             // Integrator with anti-windup (accumulate in power units)
             integral += error * dt * kI;
-            integral = clamp(integral, -integralMax, integralMax);
+            integral = clamp(integral,0, integralMax);
 
             // Derivative with simple low-pass filter on error slope
             double rawDeriv = (error - prevError) / dt;
-            filteredDeriv = derivativeAlpha * filteredDeriv + (1.0 - derivativeAlpha) * rawDeriv;
+            //filteredDeriv = derivativeAlpha * filteredDeriv + (1.0 - derivativeAlpha) * rawDeriv;
+            filteredDeriv = rawDeriv;
             prevError = error;
 
             // Feedforward with voltage compensation
@@ -125,23 +135,26 @@ public class ManualPIDF extends LinearOpMode {
             power = clamp(power, powerMin, powerMax);
             motor.setPower(power);
 
+            sleep(sleepyTime);
             // 5) Dashboard telemetry
             if (showPerCycleTelemetry) {
                 TelemetryPacket packet = new TelemetryPacket();
                 packet.put("dt_s", dt);
+                packet.put("sleep",sleepyTime);
                 packet.put("target_tps", tgtTps);
                 packet.put("target_rpm", tpsToRpm(tgtTps));
                 packet.put("measured_tps", measuredTps);
                 packet.put("measured_rpm", tpsToRpm(measuredTps));
                 packet.put("error_tps", error);
-                packet.put("P", pTerm);
-                packet.put("I", integral);
-                packet.put("D", dTerm);
-                packet.put("FF_base", kF * tgtTps);
+                packet.put("P", kP);
+                packet.put("I", kI);
+                packet.put("D", kD);
+                packet.put("FF_base", kF);
                 packet.put("battery_V", batteryVoltage);
                 packet.put("voltScale", voltScale);
                 packet.put("FF", ff);
                 packet.put("power_cmd", power);
+                packet.put("position", motor.getCurrentPosition());
                 dashboard.sendTelemetryPacket(packet);
             }
 
@@ -182,3 +195,4 @@ public class ManualPIDF extends LinearOpMode {
         return v;
     }
 }
+//:P :) :( :D :O :>) (*/ω＼*)UwU I_I X_X 96 L9 67 ☆*: .｡. o(≧▽≦)o .｡.:*☆（づ￣3￣）づ╭❤️～ヾ(•ω•`)o
