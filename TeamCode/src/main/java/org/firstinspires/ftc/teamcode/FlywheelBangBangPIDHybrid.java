@@ -18,7 +18,7 @@ public class FlywheelBangBangPIDHybrid extends OpMode {
     // =========================
     // Hardware names
     // =========================
-    public static String FLYWHEEL_NAME = "left_drive"; // Motor with built-in encoder
+    public static String FLYWHEEL_NAME = "shooter"; // Motor with built-in encoder
     public static String STUDICA_NAME  = "m4";         // Studica on motor port 4 as sensor only
 
     // =========================
@@ -60,8 +60,8 @@ public class FlywheelBangBangPIDHybrid extends OpMode {
     public static double KS              = 0.05;
     public static double KV_RPM          = 0.00017;   // about 1 / 5900..4200 depending on your motor
     public static double KP_RPM          = 0.00010;
-    public static double KI_RPM          = 0.0;
-    public static double KD_RPM          = 0.00030;
+    public static double KI_RPM          = 0.001; //0.0;
+    public static double KD_RPM          = 0; //0.00030;
 
     // Derivative on measurement reduces noise amplification
     public static boolean DERIV_ON_MEAS  = true;
@@ -127,7 +127,7 @@ public class FlywheelBangBangPIDHybrid extends OpMode {
 
         flywheel.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         flywheel.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-        flywheel.setDirection(DcMotorSimple.Direction.REVERSE);
+        flywheel.setDirection(DcMotorSimple.Direction.FORWARD);
 
         studicaEnc.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         studicaEnc.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
