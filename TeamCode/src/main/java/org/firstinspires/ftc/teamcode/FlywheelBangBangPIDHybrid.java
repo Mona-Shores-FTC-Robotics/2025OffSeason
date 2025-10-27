@@ -18,7 +18,7 @@ public class FlywheelBangBangPIDHybrid extends OpMode {
     // =========================
     // Hardware names
     // =========================
-    public static String FLYWHEEL_NAME = "shooter"; // Motor with built-in encoder
+    public static String FLYWHEEL_NAME = "leftshooter"; // Motor with built-in encoder
     public static String STUDICA_NAME  = "m4";         // Studica on motor port 4 as sensor only
 
     // =========================
@@ -29,7 +29,7 @@ public class FlywheelBangBangPIDHybrid extends OpMode {
     private double MOTOR_TICKS_PER_REV = 1.0;
 
     public static double STUDICA_TICKS_PER_REV = 2048.0; // from your one-rev test
-    public static boolean USE_STUDICA_FOR_CONTROL = true;
+    public static boolean USE_STUDICA_FOR_CONTROL = false;
 
     // =========================
     // Targets (RPM)
@@ -40,7 +40,7 @@ public class FlywheelBangBangPIDHybrid extends OpMode {
 
     // Live target selection
     public static boolean USE_FIXED_TARGET = true;
-    public static double  FIXED_TARGET_RPM = 4100;
+    public static double  FIXED_TARGET_RPM = 0;
 
     // =========================
     // Hybrid control parameters
